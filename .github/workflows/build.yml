@@ -8,17 +8,58 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Build minimal APK directly with Android SDK
+
+      - name: Locate or extract Android project
+        shell: bash
         run: |
-          SCRIPT="$(find . -maxdepth 3 -name 'build_min_apk.sh' | head -n 1)"
-          bash "$SCRIPT"
-      - name: Upload signed APK
+          set -euo pipefail
+          if [[ -f build_min_apk.sh && -d app/src/main/res ]]; then
+            ROOT="."
+          elif [[ -f overcast-mini-widget/build_min_apk.sh && -d overcast-mini-widget/app/src/main/res ]]; then
+            ROOT="overcast-mini-widget"
+          elif [[ -f overcast-mini-github-ready-build-fix.zip ]]; then
+            echo "Extracting committed Android source archive..."
+            mkdir -p unpacked-project
+            unzip -q overcast-mini-github-ready-build-fix.zip -d unpacked-project
+            ROOT="unpacked-project"
+            [[ -f "$ROOT/build_min_apk.sh" && -d "$ROOT/app/src/main/res" ]] || {
+              echo "::error::ZIP must contain build_min_apk.sh and app/src/main/res"
+              exit 1
+            }
+          else
+            echo "::error::No Android source or ZIP found in this repository."
+            ls -la
+            exit 1
+          fi
+          echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
+          echo "Android project found at $ROOT"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK build requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build and sign APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash "$PROJECT_ROOT/build_min_apk.sh"
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: overcast-mini-widget-apk
           path: "**/build_min/overcast-mini-widget.apk"
+          if-no-files-found: error
