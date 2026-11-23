@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -26,30 +26,50 @@ jobs:
           elif [[ -f overcast-mini-widget/build_min_apk.sh && -d overcast-mini-widget/app/src/main/res ]]; then
             ROOT="overcast-mini-widget"
           elif [[ -f overcast-mini-github-ready-build-fix.zip ]]; then
-            echo "Extracting committed Android source archive..."
+            echo "Extracting Android project from the ZIP already committed to this repository."
             mkdir -p unpacked-project
             unzip -q overcast-mini-github-ready-build-fix.zip -d unpacked-project
             ROOT="unpacked-project"
-            [[ -f "$ROOT/build_min_apk.sh" && -d "$ROOT/app/src/main/res" ]] || {
-              echo "::error::ZIP must contain build_min_apk.sh and app/src/main/res"
-              exit 1
-            }
           else
-            echo "::error::No Android source or ZIP found in this repository."
-            ls -la
+            echo "::error::No Android project or overcast-mini-github-ready-build-fix.zip found."
+            find . -maxdepth 3 -type f | head -80 || true
+            exit 1
+          fi
+          if [[ ! -f "$ROOT/build_min_apk.sh" || ! -d "$ROOT/app/src/main/res" ]]; then
+            echo "::error::Android project is missing build_min_apk.sh or app/src/main/res"
+            find "$ROOT" -maxdepth 3 -type f | head -80 || true
             exit 1
           fi
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
-          echo "Android project found at $ROOT"
+          echo "Found Android source at: $ROOT"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK build requirements
+      # Do NOT use android-actions/setup-android@v3 here.
+      # It tries to install the retired SDK package `tools` on some runners.
+      - name: Install Android SDK 35 packages
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+          if [[ -z "$SDKMANAGER" || ! -x "$SDKMANAGER" ]]; then
+            echo "::error::GitHub runner Android SDK command-line tools not found."
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "Using sdkmanager: $SDKMANAGER"
+          # Accept SDK licenses non-interactively. With pipefail off, only
+          # sdkmanager's exit status matters (yes may get SIGPIPE).
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+          test -f "$SDK/platforms/android-35/android.jar"
+          test -x "$SDK/build-tools/35.0.0/aapt2"
+          test -x "$SDK/build-tools/35.0.0/d8"
 
       - name: Build and sign APK
         shell: bash
@@ -61,5 +81,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: overcast-mini-widget-apk
-          path: "**/build_min/overcast-mini-widget.apk"
+          path: '**/build_min/overcast-mini-widget.apk'
           if-no-files-found: error
