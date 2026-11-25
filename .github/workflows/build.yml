@@ -21,16 +21,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -f overcast-mini-news-v14.zip ]]; then
+          if [[ -f overcast-mini-news-v15.zip ]]; then
             mkdir -p unpacked-project
-            unzip -q overcast-mini-news-v14.zip -d unpacked-project
+            unzip -q overcast-mini-news-v15.zip -d unpacked-project
             ROOT=unpacked-project
           elif [[ -f build_min_apk.sh && -d app/src/main/res ]]; then
             ROOT=.
           elif [[ -f overcast-mini-widget/build_min_apk.sh && -d overcast-mini-widget/app/src/main/res ]]; then
             ROOT=overcast-mini-widget
           else
-            echo '::error::Upload overcast-mini-news-v14.zip to repository root, or commit the extracted source.'
+            echo '::error::Upload overcast-mini-news-v15.zip to repository root, or commit the extracted source.'
             find . -maxdepth 4 -type f | head -100 || true
             exit 1
           fi
@@ -75,6 +75,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: overcast-mini-news-v14-apk
+          name: overcast-mini-news-v15-apk
           path: '**/build_min/overcast-mini-widget.apk'
           if-no-files-found: error
