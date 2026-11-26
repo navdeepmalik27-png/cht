@@ -1,4 +1,4 @@
-name: Build Overcast Mini v1.7 APK
+name: Build Overcast Mini v1.8 APK
 
 on:
   push:
@@ -19,42 +19,41 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate or extract v1.7 project
+      - name: Locate v1.8 Android source
         shell: bash
         run: |
           set -euo pipefail
-          # Favor this version over any old v1.5/v1.6 ZIPs left in the repo.
-          if [[ -f overcast-mini-v17-github-ready.zip ]]; then
-            mkdir -p _overcast_v17
-            unzip -q -o overcast-mini-v17-github-ready.zip -d _overcast_v17
-            ROOT=_overcast_v17
+          # Select the v1.8 ZIP, even if older versions remain in the repo.
+          if [[ -f overcast-mini-v18-github-ready.zip ]]; then
+            mkdir -p _overcast_v18
+            unzip -q -o overcast-mini-v18-github-ready.zip -d _overcast_v18
+            ROOT=_overcast_v18
           elif [[ -f build_min_apk.sh && -d app/src/main/res ]]; then
             ROOT=.
-          elif [[ -f overcast-mini-widget/build_min_apk.sh ]]; then
+          elif [[ -f overcast-mini-widget/build_min_apk.sh && -d overcast-mini-widget/app/src/main/res ]]; then
             ROOT=overcast-mini-widget
           else
-            echo '::error::Missing Overcast Mini v1.7 source. Upload overcast-mini-v17-github-ready.zip to the repository root or commit its extracted contents.'
-            find . -maxdepth 3 -type f | head -70 || true
+            echo '::error::Missing v1.8 source ZIP or extracted Android project'
+            find . -maxdepth 3 -type f | head -80 || true
             exit 1
           fi
-          test -f "$ROOT/build_min_apk.sh" || { echo '::error::Missing build_min_apk.sh'; exit 1; }
-          test -d "$ROOT/app/src/main/res" || { echo '::error::Missing Android resources'; exit 1; }
+          [[ -f "$ROOT/build_min_apk.sh" ]] || { echo '::error::Missing build_min_apk.sh'; exit 1; }
+          [[ -d "$ROOT/app/src/main/res" ]] || { echo '::error::Missing Android resources'; exit 1; }
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
-          echo "Building from $ROOT"
+          echo "Building Overcast Mini from $ROOT"
 
-      - name: Install Android SDK Platform 35 + Build Tools 35.0.0
+      - name: Install Android SDK Platform 35 and Build Tools 35.0.0
         shell: bash
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           MANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
           if [[ ! -x "$MANAGER" ]]; then
-            MANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f -print -quit)"
+            MANAGER="$(find "$SDK/cmdline-tools" -type f -name sdkmanager -print -quit)"
           fi
-          [[ -x "$MANAGER" ]] || { echo '::error::Android sdkmanager not available on this runner'; exit 1; }
+          [[ -x "$MANAGER" ]] || { echo '::error::Android sdkmanager unavailable on runner'; exit 1; }
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          # Piping yes is expected to exit with SIGPIPE after licenses are accepted.
           set +o pipefail
           yes | "$MANAGER" --licenses >/dev/null
           set -o pipefail
@@ -62,8 +61,9 @@ jobs:
           test -f "$SDK/platforms/android-35/android.jar"
           test -x "$SDK/build-tools/35.0.0/aapt2"
           test -x "$SDK/build-tools/35.0.0/d8"
+          test -x "$SDK/build-tools/35.0.0/apksigner"
 
-      - name: Build and sign APK
+      - name: Compile and sign v1.8 APK
         shell: bash
         env:
           OVERCAST_KEYSTORE_B64: ${{ secrets.OVERCAST_KEYSTORE_B64 }}
@@ -73,10 +73,11 @@ jobs:
         run: |
           set -euo pipefail
           bash "$PROJECT_ROOT/build_min_apk.sh"
+          test -s "$PROJECT_ROOT/build_min/overcast-mini-widget.apk"
 
-      - name: Upload installable APK
+      - name: Upload v1.8 installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: overcast-mini-v17-apk
+          name: overcast-mini-v18-apk
           path: '**/build_min/overcast-mini-widget.apk'
           if-no-files-found: error
