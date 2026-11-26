@@ -1,4 +1,4 @@
-name: Build Overcast Mini APK
+name: Build Overcast Mini v1.7 APK
 
 on:
   push:
@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -17,31 +19,30 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate or extract Android source
+      - name: Locate or extract v1.7 project
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -f overcast-mini-news-v16-glass.zip ]]; then
-            mkdir -p unpacked-project
-            unzip -q overcast-mini-news-v16-glass.zip -d unpacked-project
-            ROOT=unpacked-project
+          # Favor this version over any old v1.5/v1.6 ZIPs left in the repo.
+          if [[ -f overcast-mini-v17-github-ready.zip ]]; then
+            mkdir -p _overcast_v17
+            unzip -q -o overcast-mini-v17-github-ready.zip -d _overcast_v17
+            ROOT=_overcast_v17
           elif [[ -f build_min_apk.sh && -d app/src/main/res ]]; then
             ROOT=.
-          elif [[ -f overcast-mini-widget/build_min_apk.sh && -d overcast-mini-widget/app/src/main/res ]]; then
+          elif [[ -f overcast-mini-widget/build_min_apk.sh ]]; then
             ROOT=overcast-mini-widget
           else
-            echo '::error::Upload overcast-mini-news-v16-glass.zip to repository root, or commit the extracted source.'
-            find . -maxdepth 4 -type f | head -100 || true
+            echo '::error::Missing Overcast Mini v1.7 source. Upload overcast-mini-v17-github-ready.zip to the repository root or commit its extracted contents.'
+            find . -maxdepth 3 -type f | head -70 || true
             exit 1
           fi
-          [[ -f "$ROOT/build_min_apk.sh" && -d "$ROOT/app/src/main/res" ]] || {
-            echo "::error::Missing build_min_apk.sh or app/src/main/res in $ROOT"
-            exit 1
-          }
+          test -f "$ROOT/build_min_apk.sh" || { echo '::error::Missing build_min_apk.sh'; exit 1; }
+          test -d "$ROOT/app/src/main/res" || { echo '::error::Missing Android resources'; exit 1; }
           echo "PROJECT_ROOT=$ROOT" >> "$GITHUB_ENV"
-          echo "Using Android project: $ROOT"
+          echo "Building from $ROOT"
 
-      - name: Install Android SDK 35
+      - name: Install Android SDK Platform 35 + Build Tools 35.0.0
         shell: bash
         run: |
           set -euo pipefail
@@ -50,9 +51,10 @@ jobs:
           if [[ ! -x "$MANAGER" ]]; then
             MANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f -print -quit)"
           fi
-          [[ -x "$MANAGER" ]] || { echo '::error::SDK manager not found'; exit 1; }
+          [[ -x "$MANAGER" ]] || { echo '::error::Android sdkmanager not available on this runner'; exit 1; }
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          # Piping yes is expected to exit with SIGPIPE after licenses are accepted.
           set +o pipefail
           yes | "$MANAGER" --licenses >/dev/null
           set -o pipefail
@@ -61,7 +63,7 @@ jobs:
           test -x "$SDK/build-tools/35.0.0/aapt2"
           test -x "$SDK/build-tools/35.0.0/d8"
 
-      - name: Build APK
+      - name: Build and sign APK
         shell: bash
         env:
           OVERCAST_KEYSTORE_B64: ${{ secrets.OVERCAST_KEYSTORE_B64 }}
@@ -72,9 +74,9 @@ jobs:
           set -euo pipefail
           bash "$PROJECT_ROOT/build_min_apk.sh"
 
-      - name: Upload APK artifact
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: overcast-mini-news-v16-apk
+          name: overcast-mini-v17-apk
           path: '**/build_min/overcast-mini-widget.apk'
           if-no-files-found: error
